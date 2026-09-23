@@ -61,7 +61,11 @@ fun AlldocsApp(vm: AppViewModel) {
                 OfficeType.DOCX -> DocxReader.read(context, uri)
                 OfficeType.TXT -> OfficeFile.readText(context, uri)
                 OfficeType.PDF -> PdfReader.read(context, uri)
-                OfficeType.IMAGE -> runCatching {\n                    val mime = context.contentResolver.getType(uri) ?: "image/*"\n                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)\n                    "<p><img src=\"data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}\" /></p>"\n                }.getOrDefault("")
+                OfficeType.IMAGE -> runCatching {
+                    val mime = context.contentResolver.getType(uri) ?: "image/*"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                    "<p><img src=\"data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}\" /></p>"
+                }.getOrDefault("")
                 OfficeType.UNKNOWN -> ""
             }
             editing = Document("__file__:" + type.name + ":" + uri, name.substringBeforeLast('.'), body, System.currentTimeMillis())
@@ -435,6 +439,13 @@ private fun EditorScreen(
             },
             dismissButton = { TextButton({ showTable = false }) { Text("Cancel") } }
         )
+    }
+}
+
+@Composable
+private fun EditorTool(label: String, description: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.height(38.dp)) {
+        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     }
 }
 
