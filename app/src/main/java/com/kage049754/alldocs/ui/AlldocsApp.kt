@@ -55,13 +55,13 @@ fun AlldocsApp(vm: AppViewModel) {
                     uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             }
-            val name = OfficeFile.displayName(uri)
+            val name = OfficeFile.displayName(context, uri)
             val type = OfficeFile.typeOf(name)
             val body = when (type) {
                 OfficeType.DOCX -> DocxReader.read(context, uri)
                 OfficeType.TXT -> OfficeFile.readText(context, uri)
                 OfficeType.PDF -> PdfReader.read(context, uri)
-                OfficeType.IMAGE -> ""
+                OfficeType.IMAGE -> runCatching {\n                    val mime = context.contentResolver.getType(uri) ?: "image/*"\n                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)\n                    "<p><img src=\"data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}\" /></p>"\n                }.getOrDefault("")
                 OfficeType.UNKNOWN -> ""
             }
             editing = Document("__file__:" + type.name + ":" + uri, name.substringBeforeLast('.'), body, System.currentTimeMillis())
