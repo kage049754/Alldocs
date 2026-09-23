@@ -65,8 +65,10 @@ fun AlldocsApp(vm: AppViewModel) {
             onSaveOriginal = {
                 val current = editing!!
                 if (current.id.startsWith("__file__:")) {
-                    val uri = androidx.core.net.toUri(current.id.removePrefix("__file__:"))
-                    when (OfficeFile.typeOf(current.title)) {
+                    val parts = current.id.split(":", limit = 3)
+                    val type = com.kage049754.alldocs.io.OfficeType.valueOf(parts[1])
+                    val uri = androidx.core.net.toUri(parts[2])
+                    when (type) {
                         com.kage049754.alldocs.io.OfficeType.DOCX -> DocxWriter.write(context, uri, current.body)
                         com.kage049754.alldocs.io.OfficeType.TXT -> context.contentResolver.openOutputStream(uri)?.use { it.write(current.body.toByteArray()) }
                         else -> Unit
