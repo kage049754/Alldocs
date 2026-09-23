@@ -1,4 +1,5 @@
 name: Build Alldocs APK
+# Branch build validation
 on:
   push:
     branches: [main]
