@@ -35,6 +35,7 @@ import com.kage049754.alldocs.io.DocxWriter
 import com.kage049754.alldocs.io.OfficeFile
 import com.kage049754.alldocs.io.OfficeType
 import com.kage049754.alldocs.io.PdfWriter
+import com.kage049754.alldocs.io.PdfReader
 import java.text.DateFormat
 import java.util.Date
 
@@ -59,7 +60,9 @@ fun AlldocsApp(vm: AppViewModel) {
             val body = when (type) {
                 OfficeType.DOCX -> DocxReader.read(context, uri)
                 OfficeType.TXT -> OfficeFile.readText(context, uri)
-                else -> "This file type can be opened, but document editing is not available yet."
+                OfficeType.PDF -> PdfReader.read(context, uri)
+                OfficeType.IMAGE -> ""
+                OfficeType.UNKNOWN -> ""
             }
             editing = Document("__file__:" + type.name + ":" + uri, name.substringBeforeLast('.'), body, System.currentTimeMillis())
         }
@@ -433,12 +436,13 @@ private fun EditorScreen(
 }
 
 private fun editorHtml(initial: String): String {
-    val source = initial
+    val source = if (initial.trimStart().startsWith("<")) initial else initial
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
         .replace("\n", "<br>")
+
     return """
 <!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
