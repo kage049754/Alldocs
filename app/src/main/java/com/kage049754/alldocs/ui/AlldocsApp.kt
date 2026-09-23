@@ -368,6 +368,9 @@ private fun EditorScreen(
                             EditorTool("Table", "Insert table") { showTable = true }
                             EditorTool("Link", "Hyperlink") { exec("addLink()") }
                             EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
+                            EditorTool("Img", "Image format") { exec("formatImage()") }
+                            EditorTool("Rows", "Add table row") { exec("addTableRow()") }
+                            EditorTool("Cols", "Add table column") { exec("addTableCol()") }
                             EditorTool("Break", "Page break") { exec("pageBreak()") }
                         }
                     }
@@ -467,7 +470,10 @@ const p=document.getElementById('page');
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
-function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<img src="'+src+'" alt="Image">')}
+function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<img src="'+src+'" alt="Image" style="max-width:100%;height:auto">')}
+function formatImage(){let im=document.querySelector('img[data-selected="true"]');if(!im){alert('Tap an image first');return}let w=prompt('Image width (px)',String(im.getBoundingClientRect().width|0));if(w)im.style.width=Math.max(40,parseInt(w)||40)+'px';let a=prompt('Alignment: left, center, right','center');if(a==='left'||a==='center'||a==='right'){im.style.display='block';im.style.margin=a==='center'?'12px auto':a==='right'?'12px 0 12px auto':'12px 0'}}
+function addTableRow(){let t=document.querySelector('table:last-of-type');if(!t)return;let r=t.rows[t.rows.length-1],nr=t.insertRow();for(let i=0;i<r.cells.length;i++){let cell=nr.insertCell();cell.innerHTML='<br>'}}
+function addTableCol(){let t=document.querySelector('table:last-of-type');if(!t)return;for(let r of t.rows){let cell=r.insertCell();cell.innerHTML='<br>'}}
 function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
 function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
 function setViewMode(v){p.classList.toggle('reading',v==='reading-view')}
@@ -477,6 +483,7 @@ function setMargins(){p.style.padding='28px'}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
+p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
 </script></body></html>
 """
