@@ -67,13 +67,13 @@ fun AlldocsApp(vm: AppViewModel) {
                 if (current.id.startsWith("__file__:")) {
                     val parts = current.id.split(":", limit = 3)
                     val type = com.kage049754.alldocs.io.OfficeType.valueOf(parts[1])
-                    val uri = androidx.core.net.toUri(parts[2])
+                    val uri = android.net.Uri.parse(parts[2])
                     when (type) {
                         com.kage049754.alldocs.io.OfficeType.DOCX -> DocxWriter.write(context, uri, current.body)
                         com.kage049754.alldocs.io.OfficeType.TXT -> context.contentResolver.openOutputStream(uri)?.use { it.write(current.body.toByteArray()) }
                         else -> Unit
                     }
-                } else onSave(current.title, current.body)
+                } else { vm.save(current.id.takeUnless { it == "__new__" }, current.title, current.body); editing = null }
             },
             onSaveAsDocx = { saveDocx.launch(editing!!.title.ifBlank { "Document" } + ".docx") },
             onSaveAsPdf = { savePdf.launch(editing!!.title.ifBlank { "Document" } + ".pdf") },
