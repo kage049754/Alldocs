@@ -21,6 +21,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.util.Base64
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kage049754.alldocs.data.Document
@@ -229,6 +235,7 @@ private fun DocumentCard(d: Document, open: () -> Unit, delete: () -> Unit) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun EditorScreen(
     doc: Document,
@@ -240,14 +247,41 @@ private fun EditorScreen(
     onSaveAsTxt: () -> Unit
 ) {
     var title by remember { mutableStateOf(doc.title) }
-    var body by remember { mutableStateOf(doc.body) }
-    var showMore by remember { mutableStateOf(false) }
     var viewMode by remember { mutableStateOf("Print layout") }
+    var showMore by remember { mutableStateOf(false) }
+    var showInsert by remember { mutableStateOf(false) }
+    var showFormat by remember { mutableStateOf(false) }
+    var showLayout by remember { mutableStateOf(false) }
+    var showTable by remember { mutableStateOf(false) }
     var tableRows by remember { mutableStateOf(3) }
     var tableCols by remember { mutableStateOf(3) }
-    var showTable by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    val context = LocalContext.current
+
+    val saveBridge = remember(title, doc.id) {
+        object {
+            @JavascriptInterface
+            fun save(html: String) {
+                onSave(title.ifBlank { "Untitled document" }, html)
+            }
+        }
+    }
+
+    fun exec(js: String) {
+        webView?.evaluateJavascript("javascript:$js", null)
+    }
+
+    fun insertImage(uri: android.net.Uri) {
+        runCatching {
+            val mime = context.contentResolver.getType(uri) ?: "image/png"
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return
+            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            exec("insertImage('data:$mime;base64,$b64')")
+        }
+    }
+
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) body += "\\n[Image: $uri]\\n"
+        if (uri != null) insertImage(uri)
     }
 
     Scaffold(
@@ -261,16 +295,23 @@ private fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton({ onSaveOriginal() }) { Icon(Icons.Default.Save, "Save") }
+                    IconButton({ exec("requestSave()") }) { Icon(Icons.Default.Save, "Save") }
                     IconButton({ showMore = !showMore }) { Icon(Icons.Default.MoreVert, "More") }
                     DropdownMenu(showMore, { showMore = false }) {
                         DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
                         DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); showMore = false })
                         DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); showMore = false })
-                        DropdownMenuItem({ Text("Print layout") }, { viewMode = "Print layout"; showMore = false })
-                        DropdownMenuItem({ Text("Reading view") }, { viewMode = "Reading view"; showMore = false })
-                        DropdownMenuItem({ Text("Insert image") }, { imagePicker.launch("image/*"); showMore = false })
+                        DropdownMenuItem({
+                            Text(if (viewMode == "Reading view") "Print layout" else "Reading view")
+                        }, {
+                            viewMode = if (viewMode == "Reading view") "Print layout" else "Reading view"
+                            val mode = viewMode.lowercase().replace(" ", "-")
+                            exec("setViewMode('$mode')")
+                            showMore = false
+                        })
+                        DropdownMenuItem({ Text("Insert photo") }, { imagePicker.launch("image/*"); showMore = false })
                         DropdownMenuItem({ Text("Insert table") }, { showTable = true; showMore = false })
+                        DropdownMenuItem({ Text("Find / Replace") }, { exec("findReplace()"); showMore = false })
                     }
                 }
             )
@@ -280,58 +321,160 @@ private fun EditorScreen(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 singleLine = true,
                 label = { Text("Document name") },
                 leadingIcon = { Icon(Icons.Default.Title, null) }
             )
-
-            Surface(shadowElevation = 2.dp) {
+            Surface(shadowElevation = 3.dp) {
                 Column {
                     Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        EditorTool("B", "Bold") { body += "\\n**bold text**" }
-                        EditorTool("I", "Italic") { body += "\\n*italic text*" }
-                        EditorTool("U", "Underline") { body += "\\n<u>underlined text</u>" }
-                        EditorTool("H1", "Heading") { body += "\\n# Heading" }
-                        EditorTool("•", "Bullet list") { body += "\\n• List item" }
-                        EditorTool("1.", "Numbered list") { body += "\\n1. List item" }
-                        IconButton(onClick = { body += "\\n\\n" }) { Icon(Icons.Default.FormatAlignLeft, "Paragraph") }
-                        IconButton(onClick = { body += "\\n" }) { Icon(Icons.Default.FormatClear, "Clear formatting") }
+                        IconButton({ exec("undo()") }) { Icon(Icons.Default.Undo, "Undo") }
+                        IconButton({ exec("redo()") }) { Icon(Icons.Default.Redo, "Redo") }
+                        EditorTool("B", "Bold") { exec("cmd('bold')") }
+                        EditorTool("I", "Italic") { exec("cmd('italic')") }
+                        EditorTool("U", "Underline") { exec("cmd('underline')") }
+                        EditorTool("S", "Strike") { exec("cmd('strikeThrough')") }
+                        IconButton({ showFormat = !showFormat }) { Icon(Icons.Default.FormatSize, "Font") }
+                        IconButton({ exec("cmd('justifyLeft')") }) { Icon(Icons.Default.FormatAlignLeft, "Align left") }
+                        IconButton({ exec("cmd('justifyCenter')") }) { Icon(Icons.Default.FormatAlignCenter, "Center") }
+                        IconButton({ exec("cmd('justifyRight')") }) { Icon(Icons.Default.FormatAlignRight, "Right") }
+                        IconButton({ exec("cmd('justifyFull')") }) { Icon(Icons.Default.FormatAlignJustify, "Justify") }
+                        IconButton({ exec("cmd('insertUnorderedList')") }) { Icon(Icons.Default.FormatListBulleted, "Bullets") }
+                        IconButton({ exec("cmd('insertOrderedList')") }) { Icon(Icons.Default.FormatListNumbered, "Numbering") }
+                        IconButton({ showInsert = !showInsert }) { Icon(Icons.Default.Add, "Insert") }
+                        IconButton({ showLayout = !showLayout }) { Icon(Icons.Default.ViewAgenda, "Layout") }
+                    }
+                    if (showFormat) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            EditorTool("H1", "Heading 1") { exec("formatBlock('h1')") }
+                            EditorTool("H2", "Heading 2") { exec("formatBlock('h2')") }
+                            EditorTool("P", "Normal") { exec("formatBlock('p')") }
+                            EditorTool("12", "12pt") { exec("fontSize('3')") }
+                            EditorTool("16", "16pt") { exec("fontSize('4')") }
+                            EditorTool("20", "20pt") { exec("fontSize('5')") }
+                            EditorTool("Clear", "Clear formatting") { exec("cmd('removeFormat')") }
+                        }
+                    }
+                    if (showInsert) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            EditorTool("Photo", "Insert photo") { imagePicker.launch("image/*") }
+                            EditorTool("Table", "Insert table") { showTable = true }
+                            EditorTool("Link", "Hyperlink") { exec("addLink()") }
+                            EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
+                            EditorTool("Break", "Page break") { exec("pageBreak()") }
+                        }
+                    }
+                    if (showLayout) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            EditorTool("A4", "A4 page") { exec("setPage('A4')") }
+                            EditorTool("Letter", "Letter page") { exec("setPage('Letter')") }
+                            EditorTool("Portrait", "Portrait") { exec("setOrientation('portrait')") }
+                            EditorTool("Landscape", "Landscape") { exec("setOrientation('landscape')") }
+                            EditorTool("Margins", "Margins") { exec("setMargins()") }
+                        }
                     }
                     HorizontalDivider()
                 }
             }
-
-            Box(
-                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 16.dp)
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 16.sp, lineHeight = 25.sp),
-                    label = { Text("Start writing…") },
-                    minLines = 22
-                )
-            }
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = {
+                    WebView(it).apply {
+                        webView = this
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = true
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        addJavascriptInterface(saveBridge, "AlldocsEditor")
+                        webViewClient = WebViewClient()
+                        loadDataWithBaseURL("https://alldocs.local/", editorHtml(doc.body), "text/html", "UTF-8", null)
+                    }
+                },
+                update = { webView = it }
+            )
         }
     }
-}
 
-@Composable
-private fun EditorTool(text: String, description: String, onClick: () -> Unit) {
-    FilledTonalButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Text(text, fontWeight = if (text == "B" || text == "H1") FontWeight.Bold else FontWeight.Normal)
+    if (showTable) {
+        AlertDialog(
+            onDismissRequest = { showTable = false },
+            title = { Text("Insert table") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Choose rows and columns")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Rows", Modifier.weight(1f))
+                        IconButton({ tableRows = (tableRows - 1).coerceAtLeast(1) }) { Icon(Icons.Default.Remove, null) }
+                        Text("$tableRows")
+                        IconButton({ tableRows = (tableRows + 1).coerceAtMost(20) }) { Icon(Icons.Default.Add, null) }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Columns", Modifier.weight(1f))
+                        IconButton({ tableCols = (tableCols - 1).coerceAtLeast(1) }) { Icon(Icons.Default.Remove, null) }
+                        Text("$tableCols")
+                        IconButton({ tableCols = (tableCols + 1).coerceAtMost(10) }) { Icon(Icons.Default.Add, null) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    exec("insertTable($tableRows,$tableCols)")
+                    showTable = false
+                }) { Text("Insert") }
+            },
+            dismissButton = { TextButton({ showTable = false }) { Text("Cancel") } }
+        )
     }
 }
+
+private fun editorHtml(initial: String): String {
+    val source = initial
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("\n", "<br>")
+    return """
+<!doctype html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef1f5;font-family:Arial,sans-serif;color:#202124;padding:16px 0 80px}
+#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
+#page.reading{width:100%;min-height:100vh;box-shadow:none;padding:22px}
+img{max-width:100%;height:auto;display:block;margin:12px auto}
+table{border-collapse:collapse;width:100%;margin:14px 0}
+td,th{border:1px solid #777;padding:8px;min-width:45px}
+th{background:#e9eef6}
+hr{border:0;border-top:1px solid #777;margin:18px 0}
+.page-break{page-break-after:always;border-top:2px dashed #aaa;margin:20px 0;height:1px}
+h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}
+a{color:#1565c0;text-decoration:underline}
+@media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}}
+</style></head><body>
+<div id="page" contenteditable="true" spellcheck="true">$source</div>
+<script>
+const p=document.getElementById('page');
+function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
+function undo(){cmd('undo')} function redo(){cmd('redo')}
+function formatBlock(v){cmd('formatBlock',v)}
+function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<img src="'+src+'" alt="Image">')}
+function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
+function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
+function setViewMode(v){p.classList.toggle('reading',v==='reading-view')}
+function setPage(v){p.dataset.page=v}
+function setOrientation(v){p.dataset.orientation=v;p.style.transform=v==='landscape'?'rotate(0deg)':''}
+function setMargins(){p.style.padding='28px'}
+function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
+function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
+function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
+p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
+</script></body></html>
+"""
+}
+
