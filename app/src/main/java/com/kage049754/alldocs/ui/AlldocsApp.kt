@@ -17,6 +17,7 @@ import com.kage049754.alldocs.data.Document
 import com.kage049754.alldocs.io.DocxReader
 import com.kage049754.alldocs.io.DocxWriter
 import com.kage049754.alldocs.io.OfficeFile
+import com.kage049754.alldocs.io.PdfWriter
 import java.text.DateFormat
 import java.util.Date
 
@@ -45,6 +46,9 @@ fun AlldocsApp(vm: AppViewModel) {
     val saveDocx = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) { uri ->
         if (uri != null && editing != null) DocxWriter.write(context, uri, editing!!.body)
     }
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null && editing != null) PdfWriter.write(context, uri, editing!!.title, editing!!.body)
+    }
     val saveTxt = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null && editing != null) context.contentResolver.openOutputStream(uri)?.use { it.write(editing!!.body.toByteArray()) }
     }
@@ -58,7 +62,19 @@ fun AlldocsApp(vm: AppViewModel) {
                 if (current.id.startsWith("__file__:")) editing = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
                 else { vm.save(current.id.takeUnless { it == "__new__" }, title, body); editing = null }
             },
+            onSaveOriginal = {
+                val current = editing!!
+                if (current.id.startsWith("__file__:")) {
+                    val uri = androidx.core.net.toUri(current.id.removePrefix("__file__:"))
+                    when (OfficeFile.typeOf(current.title)) {
+                        com.kage049754.alldocs.io.OfficeType.DOCX -> DocxWriter.write(context, uri, current.body)
+                        com.kage049754.alldocs.io.OfficeType.TXT -> context.contentResolver.openOutputStream(uri)?.use { it.write(current.body.toByteArray()) }
+                        else -> Unit
+                    }
+                } else onSave(current.title, current.body)
+            },
             onSaveAsDocx = { saveDocx.launch(editing!!.title.ifBlank { "Document" } + ".docx") },
+            onSaveAsPdf = { savePdf.launch(editing!!.title.ifBlank { "Document" } + ".pdf") },
             onSaveAsTxt = { saveTxt.launch(editing!!.title.ifBlank { "Document" } + ".txt") }
         )
         return
@@ -109,7 +125,7 @@ fun AlldocsApp(vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun EditorScreen(
     doc: Document, onBack: () -> Unit, onSave: (String, String) -> Unit,
-    onSaveAsDocx: () -> Unit, onSaveAsTxt: () -> Unit
+    onSaveOriginal: () -> Unit, onSaveAsDocx: () -> Unit, onSaveAsPdf: () -> Unit, onSaveAsTxt: () -> Unit
 ) {
     var title by remember { mutableStateOf(doc.title) }
     var body by remember { mutableStateOf(doc.body) }
@@ -121,8 +137,9 @@ fun AlldocsApp(vm: AppViewModel) {
             actions = {
                 IconButton({ saveMenu = true }) { Icon(Icons.Default.Save, "Save") }
                 DropdownMenu(saveMenu, { saveMenu = false }) {
-                    DropdownMenuItem({ Text("Save in Alldocs") }, { onSave(title, body); saveMenu = false })
+                    DropdownMenuItem({ Text("Save changes") }, { onSaveOriginal(); saveMenu = false })
                     DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); saveMenu = false })
+                    DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); saveMenu = false })
                     DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); saveMenu = false })
                 }
             }
