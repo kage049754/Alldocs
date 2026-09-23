@@ -1,220 +1,142 @@
 package com.kage049754.alldocs.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kage049754.alldocs.data.Document
+import com.kage049754.alldocs.io.DocxReader
+import com.kage049754.alldocs.io.DocxWriter
+import com.kage049754.alldocs.io.OfficeFile
 import java.text.DateFormat
 import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlldocsApp(vm: AppViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val docs by vm.documents.collectAsState()
     var editing by remember { mutableStateOf<Document?>(null) }
     var query by remember { mutableStateOf("") }
-    var menu by remember { mutableStateOf(false) }
+
+    val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            val name = OfficeFile.displayName(uri)
+            val type = OfficeFile.typeOf(name)
+            val body = when (type) {
+                com.kage049754.alldocs.io.OfficeType.DOCX -> DocxReader.read(context, uri)
+                com.kage049754.alldocs.io.OfficeType.TXT -> OfficeFile.readText(context, uri)
+                else -> "This format can be opened, but text editing is not available yet."
+            }
+            editing = Document("__file__:$uri", name.substringBeforeLast('.'), body, System.currentTimeMillis())
+        }
+    }
+
+    val saveDocx = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) { uri ->
+        if (uri != null && editing != null) DocxWriter.write(context, uri, editing!!.body)
+    }
+    val saveTxt = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null && editing != null) context.contentResolver.openOutputStream(uri)?.use { it.write(editing!!.body.toByteArray()) }
+    }
 
     if (editing != null) {
         EditorScreen(
             doc = editing!!,
             onBack = { editing = null },
             onSave = { title, body ->
-                val id = editing!!.id.takeUnless { it == "__new__" }
-                vm.save(id, title, body)
-                editing = null
-            }
+                val current = editing!!
+                if (current.id.startsWith("__file__:")) editing = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
+                else { vm.save(current.id.takeUnless { it == "__new__" }, title, body); editing = null }
+            },
+            onSaveAsDocx = { saveDocx.launch(editing!!.title.ifBlank { "Document" } + ".docx") },
+            onSaveAsTxt = { saveTxt.launch(editing!!.title.ifBlank { "Document" } + ".txt") }
         )
         return
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Alldocs", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { menu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("About") },
-                            onClick = { menu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Offline storage enabled") },
-                            onClick = { menu = false }
-                        )
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { editing = Document("__new__", "", "", 0L) }
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "New document")
-            }
-        }
+        topBar = { TopAppBar(title = { Text("Alldocs", fontWeight = FontWeight.Bold) }) },
+        floatingActionButton = { FloatingActionButton({ editing = Document("__new__", "", "", 0L) }) { Icon(Icons.Default.Add, "New") } }
     ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Search documents") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
-            )
-            Spacer(Modifier.height(12.dp))
-            val filtered = docs.filter {
-                it.title.contains(query, true) || it.body.contains(query, true)
+        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+            Button(onClick = { openFile.launch(arrayOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "application/pdf", "image/*")) }) {
+                Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(6.dp)); Text("Open file from phone")
             }
-            if (filtered.isEmpty()) {
-                EmptyState()
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(filtered, key = { it.id }) { document ->
-                        DocumentCard(
-                            document = document,
-                            onOpen = { editing = document },
-                            onDelete = { vm.delete(document.id) }
-                        )
-                    }
-                }
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(vertical = 12.dp), singleLine = true,
+                placeholder = { Text("Search documents") }, leadingIcon = { Icon(Icons.Default.Search, null) })
+            val filtered = docs.filter { it.title.contains(query, true) || it.body.contains(query, true) }
+            if (filtered.isEmpty()) EmptyState() else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(filtered, key = { it.id }) { d -> DocumentCard(d, { editing = d }, { vm.delete(d.id) }) }
             }
         }
     }
 }
 
-@Composable
-private fun EmptyState() {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(28.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(64.dp))
-        Spacer(Modifier.height(16.dp))
+@Composable private fun EmptyState() {
+    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+        Icon(Icons.Default.Description, null, Modifier.size(64.dp)); Spacer(Modifier.height(16.dp))
         Text("No documents yet", style = MaterialTheme.typography.headlineSmall)
-        Text("Tap + to create your first offline document.")
+        Text("Create a document or open a file from your phone.")
     }
 }
 
-@Composable
-private fun DocumentCard(document: Document, onOpen: () -> Unit, onDelete: () -> Unit) {
+@Composable private fun DocumentCard(d: Document, open: () -> Unit, delete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(36.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(document.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(document.body.replace("\n", " ").take(100), maxLines = 2)
-                Text(
-                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(document.updatedAt)),
-                    style = MaterialTheme.typography.labelSmall
-                )
+    Card(onClick = open, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Default.Description, null, Modifier.size(36.dp))
+            Column(Modifier.weight(1f)) {
+                Text(d.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(d.body.replace("\n", " ").take(100), maxLines = 2)
+                Text(DateFormat.getDateTimeInstance().format(Date(d.updatedAt)), style = MaterialTheme.typography.labelSmall)
             }
-            IconButton(onClick = { menu = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Document menu")
-            }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = { onDelete(); menu = false },
-                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
-                )
-            }
+            IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, null) }
+            DropdownMenu(menu, { menu = false }) { DropdownMenuItem({ Text("Delete") }, { delete(); menu = false }) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun EditorScreen(doc: Document, onBack: () -> Unit, onSave: (String, String) -> Unit) {
-    var title by remember { mutableStateOf(if (doc.id == "__new__") "" else doc.title) }
-    var body by remember { mutableStateOf(if (doc.id == "__new__") "" else doc.body) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (doc.id == "__new__") "New document" else "Edit document") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { onSave(title, body) }) { Text("Save") }
+@Composable private fun EditorScreen(
+    doc: Document, onBack: () -> Unit, onSave: (String, String) -> Unit,
+    onSaveAsDocx: () -> Unit, onSaveAsTxt: () -> Unit
+) {
+    var title by remember { mutableStateOf(doc.title) }
+    var body by remember { mutableStateOf(doc.body) }
+    var saveMenu by remember { mutableStateOf(false) }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("Document editor") },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            actions = {
+                IconButton({ saveMenu = true }) { Icon(Icons.Default.Save, "Save") }
+                DropdownMenu(saveMenu, { saveMenu = false }) {
+                    DropdownMenuItem({ Text("Save in Alldocs") }, { onSave(title, body); saveMenu = false })
+                    DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); saveMenu = false })
+                    DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); saveMenu = false })
                 }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Title") }
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = { body += "\n# " }, label = { Text("Heading") })
-                AssistChip(onClick = { body += "\n• " }, label = { Text("Bullet") })
-                AssistChip(onClick = { body += "\n1. " }, label = { Text("Number") })
             }
-            OutlinedTextField(
-                value = body,
-                onValueChange = { body = it },
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                label = { Text("Write your document") },
-                minLines = 12
-            )
+        )
+    }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("File name") })
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AssistChip({ body += "\n# " }, label = { Text("H1") })
+                AssistChip({ body += "\n• " }, label = { Text("Bullet") })
+                AssistChip({ body += "\n1. " }, label = { Text("Number") })
+                AssistChip({ body += "**bold**" }, label = { Text("Bold") })
+            }
+            OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().weight(1f), label = { Text("Document content") }, minLines = 16)
         }
     }
 }
