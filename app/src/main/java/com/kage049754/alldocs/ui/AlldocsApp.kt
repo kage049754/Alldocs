@@ -3,6 +3,7 @@ package com.kage049754.alldocs.ui
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kage049754.alldocs.data.Document
@@ -36,6 +39,7 @@ fun AlldocsApp(vm: AppViewModel) {
     val docs by vm.documents.collectAsState()
     var editing by remember { mutableStateOf<Document?>(null) }
     var query by remember { mutableStateOf("") }
+    var templateMenu by remember { mutableStateOf(false) }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -238,6 +242,13 @@ private fun EditorScreen(
     var title by remember { mutableStateOf(doc.title) }
     var body by remember { mutableStateOf(doc.body) }
     var showMore by remember { mutableStateOf(false) }
+    var viewMode by remember { mutableStateOf("Print layout") }
+    var tableRows by remember { mutableStateOf(3) }
+    var tableCols by remember { mutableStateOf(3) }
+    var showTable by remember { mutableStateOf(false) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) body += "\\n[Image: $uri]\\n"
+    }
 
     Scaffold(
         topBar = {
@@ -246,7 +257,7 @@ private fun EditorScreen(
                 title = {
                     Column {
                         Text(title.ifBlank { "Untitled document" }, maxLines = 1, fontWeight = FontWeight.SemiBold)
-                        Text("Editing", style = MaterialTheme.typography.labelSmall)
+                        Text(viewMode, style = MaterialTheme.typography.labelSmall)
                     }
                 },
                 actions = {
@@ -256,6 +267,10 @@ private fun EditorScreen(
                         DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
                         DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); showMore = false })
                         DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); showMore = false })
+                        DropdownMenuItem({ Text("Print layout") }, { viewMode = "Print layout"; showMore = false })
+                        DropdownMenuItem({ Text("Reading view") }, { viewMode = "Reading view"; showMore = false })
+                        DropdownMenuItem({ Text("Insert image") }, { imagePicker.launch("image/*"); showMore = false })
+                        DropdownMenuItem({ Text("Insert table") }, { showTable = true; showMore = false })
                     }
                 }
             )
