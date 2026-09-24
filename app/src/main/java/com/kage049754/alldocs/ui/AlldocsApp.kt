@@ -286,6 +286,7 @@ private fun EditorScreen(
     var spellcheck by remember { mutableStateOf(prefs.getBoolean("spellcheck", true)) }
     var wordCount by remember { mutableStateOf(0) }
     var charCount by remember { mutableStateOf(0) }
+    var pageCount by remember { mutableStateOf(1) }
 
     fun persistEditorSetting(key: String, value: Any) {
         prefs.edit().apply {
@@ -312,13 +313,14 @@ private fun EditorScreen(
     LaunchedEffect(webView) {
         while (webView != null) {
             webView?.evaluateJavascript(
-                "(function(){var t=(document.getElementById('page')?.innerText||'').trim();return JSON.stringify({w:t?t.split(/\\s+/).length:0,c:t.length});})()"
+                "(function(){var p=document.getElementById('page');var t=(p?.innerText||'').trim();var h=Math.max(p?.scrollHeight||0,1123);return JSON.stringify({w:t?t.split(/\\s+/).length:0,c:t.length,p:Math.max(1,Math.ceil(h/1123))});})()"
             ) { value ->
                 runCatching {
                     val raw = value.removeSurrounding("\"")
                     val obj = org.json.JSONObject(raw)
                     wordCount = obj.optInt("w", 0)
                     charCount = obj.optInt("c", 0)
+                    pageCount = obj.optInt("p", 1).coerceAtLeast(1)
                 }
             }
             delay(1000)
@@ -410,7 +412,7 @@ private fun EditorScreen(
                         leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp)) }
                     )
                     Spacer(Modifier.weight(1f))
-                    Text("$wordCount words • $charCount characters", style = MaterialTheme.typography.labelMedium)
+                    Text("$wordCount words • $charCount characters • $pageCount pages", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.width(10.dp))
                     Text("A4", style = MaterialTheme.typography.labelMedium)
                 }
@@ -641,7 +643,11 @@ private fun editorHtml(initial: String, darkMode: Boolean = false, zoomPercent: 
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#e5e7eb;font-family:Arial,sans-serif;color:#202124;padding:20px 0 96px;min-height:100vh}
-#page{width:min(94vw,760px);min-height:1040px;margin:0 auto;background:#fff;padding:42px 48px;box-shadow:0 2px 14px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere}
+#page{width:794px;min-height:1123px;margin:0 auto;background:#fff;padding:72px;box-shadow:0 2px 14px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere}
+#paginationOverlay{position:absolute;top:20px;left:50%;width:794px;height:1123px;transform:translateX(-50%);pointer-events:none;z-index:5}
+.page-boundary{position:absolute;left:0;width:100%;border-top:1px dashed #9aa0a6;height:1px}
+.page-label{position:absolute;right:12px;transform:translateY(-100%);font:12px Arial,sans-serif;color:#5f6368;background:#e5e7eb;padding:3px 7px;border-radius:10px}
+.page-first-label{position:absolute;top:10px;right:12px;font:12px Arial,sans-serif;color:#5f6368;background:#f1f3f4;padding:3px 7px;border-radius:10px}
 #page.reading{width:100%;min-height:100vh;box-shadow:none;padding:24px 22px}
 #page.mobile{width:min(390px,92vw);min-height:844px;padding:28px 22px;box-shadow:0 2px 14px rgba(0,0,0,.16)}
 #page:not(.reading):focus{box-shadow:0 3px 18px rgba(0,0,0,.22)}
@@ -656,17 +662,18 @@ td,th{border:1px solid #777;padding:8px;min-width:45px}
 th{background:#e9eef6}
 hr{border:0;border-top:1px solid #777;margin:18px 0}
 .page-break{page-break-after:always;border-top:2px dashed #aaa;margin:20px 0;height:1px}
-h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px;min-height:1075px}
-#page.letter{max-width:790px;min-height:1045px}
-#page.landscape{max-width:1000px;min-height:760px}
+h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{width:794px;min-height:1123px}
+#page.letter{width:816px;min-height:1056px}
+#page.landscape{width:1123px;min-height:794px}
 
 a{color:#1565c0;text-decoration:underline}
 @media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}.page-break{border:0;height:0;margin:0}}
 </style></head><body>
 <div id="page" class="print-layout" contenteditable="true" spellcheck="true">$source</div>
+<div id="paginationOverlay" aria-hidden="true"></div>
 <script>
 const p=document.getElementById('page');
-setTimeout(function(){setTheme($darkMode);setZoom($zoomPercent);setSpellcheck(true)},0);
+setTimeout(function(){setTheme($darkMode);setZoom($zoomPercent);setSpellcheck(true);renderPagination()},0);
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
@@ -685,10 +692,11 @@ function setViewMode(v){
   p.classList.toggle('reading',v==='reading-view');
   p.classList.toggle('mobile',v==='mobile-view');
   p.classList.toggle('print-layout',v==='print-layout');
+  renderPagination();
   p.focus()
 }
-function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4')}
-function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape');p.focus()}
+function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4');renderPagination()}
+function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape');p.focus();renderPagination()}
 function setMargins(){let v=prompt('Margins in px (8-120)','48');if(v){let n=Math.min(120,Math.max(8,parseInt(v)||48));p.style.padding=n+'px'}}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
@@ -698,7 +706,17 @@ function setTheme(d){
   p.style.caretColor=d?"#ffffff":"#202124";
 }
 function setSpellcheck(v){p.spellcheck=!!v}
-function setZoom(v){document.body.style.zoom=(Math.max(50,Math.min(200,parseInt(v)||100))/100).toString()}
+function setZoom(v){document.body.style.zoom=(Math.max(50,Math.min(200,parseInt(v)||100))/100).toString();renderPagination()}
+function pageHeight(){if(p.classList.contains('landscape'))return 794;if(p.classList.contains('letter'))return 1056;return 1123}
+function renderPagination(){
+  const o=document.getElementById('paginationOverlay'); if(!o)return;
+  if(p.classList.contains('reading')||p.classList.contains('mobile')){o.style.display='none';o.innerHTML='';return}
+  o.style.display='block';
+  const h=pageHeight(), total=Math.max(1,Math.ceil(Math.max(p.scrollHeight,h)/h));
+  o.style.width=p.offsetWidth+'px'; o.style.height=Math.max(p.scrollHeight,h)+'px';
+  o.innerHTML='<div class="page-first-label">Page 1</div>';
+  for(let i=1;i<total;i++){const y=i*h;o.insertAdjacentHTML('beforeend','<div class="page-boundary" style="top:'+y+'px"></div><div class="page-label" style="top:'+y+'px">Page '+(i+1)+'</div>')}
+}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
 p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
