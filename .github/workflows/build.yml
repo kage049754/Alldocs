@@ -2,7 +2,7 @@ name: Build Alldocs APK
 # Branch build validation
 on:
   push:
-    branches: [main]
+    branches: [main, feature/officedocs-editor]
   workflow_dispatch:
   pull_request:
     branches: [main]
