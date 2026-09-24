@@ -140,7 +140,7 @@ fun AlldocsApp(vm: AppViewModel) {
                     val uri = android.net.Uri.parse(parts[2])
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         data = uri
-                        type = OfficeFile.mimeFor(type)
+                        this.type = OfficeFile.mimeFor(type)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     runCatching { context.startActivity(intent) }
