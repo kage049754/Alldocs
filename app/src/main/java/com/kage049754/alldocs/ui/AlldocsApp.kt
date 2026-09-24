@@ -38,6 +38,7 @@ import com.kage049754.alldocs.io.PdfWriter
 import com.kage049754.alldocs.io.PdfReader
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -281,6 +282,10 @@ private fun EditorScreen(
     var compactMode by remember { mutableStateOf(prefs.getBoolean("compact_toolbar", false)) }
     var showRuler by remember { mutableStateOf(prefs.getBoolean("show_ruler", true)) }
     var zoomPercent by remember { mutableStateOf(prefs.getInt("zoom_percent", 100).coerceIn(50, 200)) }
+    var autosave by remember { mutableStateOf(prefs.getBoolean("autosave", false)) }
+    var spellcheck by remember { mutableStateOf(prefs.getBoolean("spellcheck", true)) }
+    var wordCount by remember { mutableStateOf(0) }
+    var charCount by remember { mutableStateOf(0) }
 
     fun persistEditorSetting(key: String, value: Any) {
         prefs.edit().apply {
@@ -302,6 +307,30 @@ private fun EditorScreen(
 
     fun exec(js: String) {
         webView?.evaluateJavascript("javascript:$js", null)
+    }
+
+    LaunchedEffect(webView) {
+        while (webView != null) {
+            webView?.evaluateJavascript(
+                "(function(){var t=(document.getElementById('page')?.innerText||'').trim();return JSON.stringify({w:t?t.split(/\\s+/).length:0,c:t.length});})()"
+            ) { value ->
+                runCatching {
+                    val raw = value.removeSurrounding("\"").replace("\\"", """)
+                    val obj = org.json.JSONObject(raw)
+                    wordCount = obj.optInt("w", 0)
+                    charCount = obj.optInt("c", 0)
+                }
+            }
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(autosave, webView) {
+        if (!autosave) return@LaunchedEffect
+        while (webView != null) {
+            delay(15000)
+            if (webView != null && (doc.id != "__new__" || title.isNotBlank())) exec("requestSave()")
+        }
     }
 
     fun insertImage(uri: android.net.Uri) {
@@ -381,6 +410,8 @@ private fun EditorScreen(
                         leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp)) }
                     )
                     Spacer(Modifier.weight(1f))
+                    Text("$wordCount words • $charCount characters", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(10.dp))
                     Text("A4", style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -422,6 +453,11 @@ private fun EditorScreen(
                             EditorTool("12", "12pt") { exec("fontSize('3')") }
                             EditorTool("16", "16pt") { exec("fontSize('4')") }
                             EditorTool("20", "20pt") { exec("fontSize('5')") }
+                            EditorTool("Black", "Text color") { exec("cmd('foreColor','#202124')") }
+                            EditorTool("Blue", "Text color") { exec("cmd('foreColor','#1565c0')") }
+                            EditorTool("Red", "Text color") { exec("cmd('foreColor','#c62828')") }
+                            EditorTool("Green", "Text color") { exec("cmd('foreColor','#2e7d32')") }
+                            EditorTool("Highlight", "Highlight") { exec("cmd('hiliteColor','#fff59d')") }
                             EditorTool("Clear", "Clear formatting") { exec("cmd('removeFormat')") }
                         }
                     }
@@ -499,6 +535,21 @@ private fun EditorScreen(
                         Switch(checked = showRuler, onCheckedChange = {
                             showRuler = it
                             persistEditorSetting("show_ruler", it)
+                        })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Autosave", Modifier.weight(1f))
+                        Switch(checked = autosave, onCheckedChange = {
+                            autosave = it
+                            persistEditorSetting("autosave", it)
+                        })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Spellcheck", Modifier.weight(1f))
+                        Switch(checked = spellcheck, onCheckedChange = {
+                            spellcheck = it
+                            persistEditorSetting("spellcheck", it)
+                            exec("setSpellcheck($it)")
                         })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -615,7 +666,7 @@ a{color:#1565c0;text-decoration:underline}
 <div id="page" class="print-layout" contenteditable="true" spellcheck="true">$source</div>
 <script>
 const p=document.getElementById('page');
-setTimeout(function(){setTheme(${if (darkMode) "true" else "false"});setZoom($zoomPercent)},0);
+setTimeout(function(){setTheme(${if (darkMode) "true" else "false"});setZoom($zoomPercent);setSpellcheck(${if (spellcheck) "true" else "false"})},0);
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
@@ -644,7 +695,9 @@ function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Repl
 function setTheme(d){
   document.body.style.background=d?"#202124":"#e5e7eb";
   document.body.style.color=d?"#e8eaed":"#202124";
+  p.style.caretColor=d?"#ffffff":"#202124";
 }
+function setSpellcheck(v){p.spellcheck=!!v}
 function setZoom(v){document.body.style.zoom=(Math.max(50,Math.min(200,parseInt(v)||100))/100).toString()}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
 p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
