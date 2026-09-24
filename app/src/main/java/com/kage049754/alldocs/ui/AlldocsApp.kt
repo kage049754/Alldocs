@@ -272,13 +272,24 @@ private fun EditorScreen(
     var showLayout by remember { mutableStateOf(false) }
     var showTable by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var darkMode by remember { mutableStateOf(false) }
-    var compactMode by remember { mutableStateOf(false) }
-    var showRuler by remember { mutableStateOf(true) }
     var tableRows by remember { mutableStateOf(3) }
     var tableCols by remember { mutableStateOf(3) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("alldocs_editor", android.content.Context.MODE_PRIVATE) }
+    var darkMode by remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
+    var compactMode by remember { mutableStateOf(prefs.getBoolean("compact_toolbar", false)) }
+    var showRuler by remember { mutableStateOf(prefs.getBoolean("show_ruler", true)) }
+    var zoomPercent by remember { mutableStateOf(prefs.getInt("zoom_percent", 100).coerceIn(50, 200)) }
+
+    fun persistEditorSetting(key: String, value: Any) {
+        prefs.edit().apply {
+            when (value) {
+                is Boolean -> putBoolean(key, value)
+                is Int -> putInt(key, value)
+            }
+        }.apply()
+    }
 
     val saveBridge = remember(title, doc.id) {
         object {
@@ -363,6 +374,12 @@ private fun EditorScreen(
                         label = { Text("Reading view") },
                         leadingIcon = { Icon(Icons.Default.MenuBook, null, Modifier.size(16.dp)) }
                     )
+                    FilterChip(
+                        selected = viewMode == "Mobile view",
+                        onClick = { viewMode = "Mobile view"; exec("setViewMode('mobile-view')") },
+                        label = { Text("Mobile view") },
+                        leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp)) }
+                    )
                     Spacer(Modifier.weight(1f))
                     Text("A4", style = MaterialTheme.typography.labelMedium)
                 }
@@ -378,7 +395,7 @@ private fun EditorScreen(
             Surface(shadowElevation = 3.dp) {
                 Column {
                     Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 3.dp),
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = if (compactMode) 1.dp else 3.dp),
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         IconButton({ exec("undo()") }) { Icon(Icons.Default.Undo, "Undo") }
@@ -448,7 +465,7 @@ private fun EditorScreen(
                         setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         addJavascriptInterface(saveBridge, "AlldocsEditor")
                         webViewClient = WebViewClient()
-                        loadDataWithBaseURL("https://alldocs.local/", editorHtml(doc.body), "text/html", "UTF-8", null)
+                        loadDataWithBaseURL("https://alldocs.local/", editorHtml(doc.body, darkMode, zoomPercent), "text/html", "UTF-8", null)
                     }
                 },
                 update = { webView = it }
@@ -464,17 +481,46 @@ private fun EditorScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Dark workspace", Modifier.weight(1f))
-                        Switch(checked = darkMode, onCheckedChange = { darkMode = it; exec("setTheme(" + it + ")") })
+                        Switch(checked = darkMode, onCheckedChange = {
+                            darkMode = it
+                            persistEditorSetting("dark_mode", it)
+                            exec("setTheme(" + it + ")")
+                        })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Compact toolbar", Modifier.weight(1f))
-                        Switch(checked = compactMode, onCheckedChange = { compactMode = it })
+                        Switch(checked = compactMode, onCheckedChange = {
+                            compactMode = it
+                            persistEditorSetting("compact_toolbar", it)
+                        })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Ruler", Modifier.weight(1f))
-                        Switch(checked = showRuler, onCheckedChange = { showRuler = it })
+                        Switch(checked = showRuler, onCheckedChange = {
+                            showRuler = it
+                            persistEditorSetting("show_ruler", it)
+                        })
                     }
-                    Text("Print layout remains editable, so page size, orientation, margins, images and tables can be adjusted while you type.", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Zoom", Modifier.weight(1f))
+                        IconButton({
+                            zoomPercent = (zoomPercent - 10).coerceAtLeast(50)
+                            persistEditorSetting("zoom_percent", zoomPercent)
+                            exec("setZoom($zoomPercent)")
+                        }) { Icon(Icons.Default.Remove, "Zoom out") }
+                        Text("$zoomPercent%", modifier = Modifier.width(52.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        IconButton({
+                            zoomPercent = (zoomPercent + 10).coerceAtMost(200)
+                            persistEditorSetting("zoom_percent", zoomPercent)
+                            exec("setZoom($zoomPercent)")
+                        }) { Icon(Icons.Default.Add, "Zoom in") }
+                        TextButton({
+                            zoomPercent = 100
+                            persistEditorSetting("zoom_percent", 100)
+                            exec("setZoom(100)")
+                        }) { Text("Reset") }
+                    }
+                    Text("Print layout is the paper view you edit directly. Mobile view gives you a phone-width page, while Reading view removes the paper frame.", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = { TextButton({ showSettings = false }) { Text("Done") } }
@@ -530,7 +576,7 @@ private fun String.toPlainText(): String =
         .replace("&gt;", ">")
         .trim()
 
-private fun editorHtml(initial: String): String {
+private fun editorHtml(initial: String, darkMode: Boolean = false, zoomPercent: Int = 100): String {
     val source = if (initial.trimStart().startsWith("<")) initial else initial
         .replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -546,6 +592,7 @@ private fun editorHtml(initial: String): String {
 body{margin:0;background:#e5e7eb;font-family:Arial,sans-serif;color:#202124;padding:20px 0 96px;min-height:100vh}
 #page{width:min(94vw,760px);min-height:1040px;margin:0 auto;background:#fff;padding:42px 48px;box-shadow:0 2px 14px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere}
 #page.reading{width:100%;min-height:100vh;box-shadow:none;padding:24px 22px}
+#page.mobile{width:min(390px,92vw);min-height:844px;padding:28px 22px;box-shadow:0 2px 14px rgba(0,0,0,.16)}
 #page:not(.reading):focus{box-shadow:0 3px 18px rgba(0,0,0,.22)}
 p{margin:0 0 10px}
 ul,ol{padding-left:28px}
@@ -565,9 +612,10 @@ h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px;m
 a{color:#1565c0;text-decoration:underline}
 @media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}.page-break{border:0;height:0;margin:0}}
 </style></head><body>
-<div id="page" contenteditable="true" spellcheck="true">$source</div>
+<div id="page" class="print-layout" contenteditable="true" spellcheck="true">$source</div>
 <script>
 const p=document.getElementById('page');
+setTimeout(function(){setTheme(${darkMode ? "true" : "false"});setZoom(${zoomPercent})},0);
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
@@ -582,13 +630,22 @@ function deleteTableCol(){let cell=selectedCell(),t=cell&&cell.closest('table');
 function mergeCells(){let cell=selectedCell();if(!cell)return;let next=cell.nextElementSibling;if(!next)return;cell.colSpan=(cell.colSpan||1)+(next.colSpan||1);cell.innerHTML+=(cell.innerHTML?' ':'')+next.innerHTML;next.remove()}
 function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
 function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
-function setViewMode(v){p.classList.toggle('reading',v==='reading-view');p.classList.toggle('print-layout',v!=='reading-view');p.focus()}
+function setViewMode(v){
+  p.classList.toggle('reading',v==='reading-view');
+  p.classList.toggle('mobile',v==='mobile-view');
+  p.classList.toggle('print-layout',v==='print-layout');
+  p.focus()
+}
 function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4')}
 function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape');p.focus()}
 function setMargins(){let v=prompt('Margins in px (8-120)','48');if(v){let n=Math.min(120,Math.max(8,parseInt(v)||48));p.style.padding=n+'px'}}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
-function setTheme(d){document.body.style.background=d?"#202124":"#e5e7eb"}
+function setTheme(d){
+  document.body.style.background=d?"#202124":"#e5e7eb";
+  document.body.style.color=d?"#e8eaed":"#202124";
+}
+function setZoom(v){document.body.style.zoom=(Math.max(50,Math.min(200,parseInt(v)||100))/100).toString()}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
 p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
