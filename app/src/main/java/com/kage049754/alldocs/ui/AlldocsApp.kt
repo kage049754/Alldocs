@@ -659,14 +659,20 @@ private fun editorHtml(initial: String, darkMode: Boolean = false, zoomPercent: 
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#e5e7eb;font-family:Arial,sans-serif;color:#202124;padding:20px 0 96px;min-height:100vh}
-#page{width:794px;min-height:1123px;margin:0 auto;background:#fff;padding:72px;box-shadow:0 2px 14px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere}
-#paginationOverlay{position:absolute;top:20px;left:50%;width:794px;height:1123px;transform:translateX(-50%);pointer-events:none;z-index:5}
-.page-boundary{position:absolute;left:0;width:100%;border-top:1px dashed #9aa0a6;height:1px}
-.page-label{position:absolute;right:12px;transform:translateY(-100%);font:12px Arial,sans-serif;color:#5f6368;background:#e5e7eb;padding:3px 7px;border-radius:10px}
-.page-first-label{position:absolute;top:10px;right:12px;font:12px Arial,sans-serif;color:#5f6368;background:#f1f3f4;padding:3px 7px;border-radius:10px}
-#page.reading{width:100%;min-height:100vh;box-shadow:none;padding:24px 22px}
-#page.mobile{width:min(390px,92vw);min-height:844px;padding:28px 22px;box-shadow:0 2px 14px rgba(0,0,0,.16)}
+body{margin:0;background:#d9dce1;font-family:Arial,sans-serif;color:#202124;padding:22px 0 110px;min-height:100vh;overflow-x:auto}
+#page{width:794px;min-height:1123px;margin:0 auto;background:#fff;padding:72px;box-shadow:0 1px 3px rgba(0,0,0,.18),0 8px 28px rgba(0,0,0,.14);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere;position:relative}
+#page.print-layout{background-color:#fff}
+#paginationOverlay{position:absolute;top:22px;left:50%;width:794px;height:1123px;transform:translateX(-50%);pointer-events:none;z-index:5}
+.page-boundary{position:absolute;left:0;width:100%;height:18px;background:#d9dce1;border:0;box-shadow:0 -1px 2px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.08)}
+.page-label{position:absolute;right:12px;transform:translateY(-50%);font:600 11px Arial,sans-serif;color:#687078;background:#d9dce1;padding:3px 8px;border-radius:10px;letter-spacing:.2px}
+.page-first-label{position:absolute;top:-1px;right:12px;font:600 11px Arial,sans-serif;color:#687078;background:#d9dce1;padding:3px 8px;border-radius:10px}
+@media (max-width:820px){
+  body{padding-top:12px}
+  #page{margin-left:14px;margin-right:14px}
+  #paginationOverlay{top:12px}
+}
+#page.reading{width:100%;min-height:100vh;box-shadow:none;padding:24px 22px;background:#fff}
+#page.mobile{width:min(390px,92vw);min-height:844px;padding:28px 22px;box-shadow:0 2px 14px rgba(0,0,0,.16);background:#fff}
 #page:not(.reading):focus{box-shadow:0 3px 18px rgba(0,0,0,.22)}
 p{margin:0 0 10px}
 ul,ol{padding-left:28px}
@@ -690,7 +696,7 @@ a{color:#1565c0;text-decoration:underline}
 <div id="paginationOverlay" aria-hidden="true"></div>
 <script>
 const p=document.getElementById('page');
-setTimeout(function(){setTheme($darkMode);setZoom($zoomPercent);setSpellcheck(true);renderPagination()},0);
+setTimeout(function(){setTheme($darkMode);setZoom($zoomPercent);setSpellcheck(true);renderPagination()},80);
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
@@ -723,20 +729,35 @@ function setTheme(d){
   p.style.caretColor=d?"#ffffff":"#202124";
 }
 function setSpellcheck(v){p.spellcheck=!!v}
-function setZoom(v){document.body.style.zoom=(Math.max(50,Math.min(200,parseInt(v)||100))/100).toString();renderPagination()}
+function setZoom(v){
+  const requested=Math.max(50,Math.min(200,parseInt(v)||100));
+  const fit=Math.min(1,Math.max(.42,(window.innerWidth-28)/794));
+  document.body.style.zoom=(fit*(requested/100)).toString();
+  renderPagination()
+}
 function pageHeight(){if(p.classList.contains('landscape'))return 794;if(p.classList.contains('letter'))return 1056;return 1123}
+function pageGap(){return 28}
 function renderPagination(){
   const o=document.getElementById('paginationOverlay'); if(!o)return;
-  if(p.classList.contains('reading')||p.classList.contains('mobile')){o.style.display='none';o.innerHTML='';return}
+  if(p.classList.contains('reading')||p.classList.contains('mobile')){
+    o.style.display='none';o.innerHTML='';p.style.backgroundImage='none';return
+  }
   o.style.display='block';
-  const h=pageHeight(), total=Math.max(1,Math.ceil(Math.max(p.scrollHeight,h)/h));
+  const h=pageHeight(), gap=pageGap(), total=Math.max(1,Math.ceil(Math.max(p.scrollHeight,h)/h));
   o.style.width=p.offsetWidth+'px'; o.style.height=Math.max(p.scrollHeight,h)+'px';
+  p.style.backgroundImage='repeating-linear-gradient(to bottom,#fff 0px,#fff '+(h-gap/2)+'px,#d9dce1 '+(h-gap/2)+'px,#d9dce1 '+(h+gap/2)+'px,#fff '+(h+gap/2)+'px,#fff '+h+'px)';
+  p.style.backgroundSize='100% '+h+'px';
   o.innerHTML='<div class="page-first-label">Page 1</div>';
-  for(let i=1;i<total;i++){const y=i*h;o.insertAdjacentHTML('beforeend','<div class="page-boundary" style="top:'+y+'px"></div><div class="page-label" style="top:'+y+'px">Page '+(i+1)+'</div>')}
+  for(let i=1;i<total;i++){
+    const y=i*h-gap/2;
+    o.insertAdjacentHTML('beforeend','<div class="page-boundary" style="top:'+y+'px"></div><div class="page-label" style="top:'+y+'px">Page '+(i+1)+'</div>')
+  }
 }
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
-p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
+p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true');requestAnimationFrame(renderPagination)})
+p.addEventListener('input',()=>requestAnimationFrame(renderPagination))
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
+window.addEventListener('resize',()=>setZoom($zoomPercent))
 </script></body></html>
 """
 }
