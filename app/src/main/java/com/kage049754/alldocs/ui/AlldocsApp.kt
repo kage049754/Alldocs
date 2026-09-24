@@ -132,7 +132,20 @@ fun AlldocsApp(vm: AppViewModel) {
             },
             onSaveAsDocx = { saveDocx.launch(editing!!.title.ifBlank { "Document" } + ".docx") },
             onSaveAsPdf = { savePdf.launch(editing!!.title.ifBlank { "Document" } + ".pdf") },
-            onSaveAsTxt = { saveTxt.launch(editing!!.title.ifBlank { "Document" } + ".txt") }
+            onSaveAsTxt = { saveTxt.launch(editing!!.title.ifBlank { "Document" } + ".txt") },
+            onOpenDefaultViewer = {
+                if (editing!!.id.startsWith("__file__:")) {
+                    val parts = editing!!.id.split(":", limit = 3)
+                    val type = OfficeType.valueOf(parts[1])
+                    val uri = android.net.Uri.parse(parts[2])
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        data = uri
+                        type = OfficeFile.mimeFor(type)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runCatching { context.startActivity(intent) }
+                }
+            }
         )
         return
     }
@@ -263,7 +276,8 @@ private fun EditorScreen(
     onSaveOriginal: () -> Unit,
     onSaveAsDocx: () -> Unit,
     onSaveAsPdf: () -> Unit,
-    onSaveAsTxt: () -> Unit
+    onSaveAsTxt: () -> Unit,
+    onOpenDefaultViewer: () -> Unit
 ) {
     var title by remember { mutableStateOf(doc.title) }
     var viewMode by remember { mutableStateOf("Print layout") }
@@ -367,6 +381,9 @@ private fun EditorScreen(
                     IconButton({ showMore = !showMore }) { Icon(Icons.Default.MoreVert, "More") }
                     DropdownMenu(showMore, { showMore = false }) {
                         DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
+                        if (doc.id.startsWith("__file__:")) {
+                            DropdownMenuItem({ Text("Open with phone's default viewer") }, { onOpenDefaultViewer(); showMore = false })
+                        }
                         DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); showMore = false })
                         DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); showMore = false })
                         DropdownMenuItem({
