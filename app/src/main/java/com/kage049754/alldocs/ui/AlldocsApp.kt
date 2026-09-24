@@ -301,6 +301,7 @@ private fun EditorScreen(
     var wordCount by remember { mutableStateOf(0) }
     var charCount by remember { mutableStateOf(0) }
     var pageCount by remember { mutableStateOf(1) }
+    var editorTab by remember { mutableStateOf("Home") }
 
     fun persistEditorSetting(key: String, value: Any) {
         prefs.edit().apply {
@@ -365,39 +366,29 @@ private fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
                 title = {
                     Column {
                         Text(title.ifBlank { "Untitled document" }, maxLines = 1, fontWeight = FontWeight.SemiBold)
-                        Text(viewMode, style = MaterialTheme.typography.labelSmall)
+                        Text(viewMode + " • " + pageCount + " page" + if (pageCount == 1) "" else "s", style = MaterialTheme.typography.labelSmall)
                     }
                 },
                 actions = {
-                    IconButton({ exec("requestSave()") }) { Icon(Icons.Default.Save, "Save") }
-                    IconButton({
-                        viewMode = "Print layout"
-                        exec("setViewMode('print-layout')")
-                    }) { Icon(Icons.Default.Print, "Print layout") }
-                    IconButton({ showMore = !showMore }) { Icon(Icons.Default.MoreVert, "More") }
-                    DropdownMenu(showMore, { showMore = false }) {
-                        DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
-                        if (doc.id.startsWith("__file__:")) {
-                            DropdownMenuItem({ Text("Open with phone's default viewer") }, { onOpenDefaultViewer(); showMore = false })
+                    IconButton(onClick = { exec("undo()") }) { Icon(Icons.Default.Undo, "Undo") }
+                    IconButton(onClick = { exec("redo()") }) { Icon(Icons.Default.Redo, "Redo") }
+                    IconButton(onClick = { exec("requestSave()") }) { Icon(Icons.Default.Save, "Save") }
+                    Box {
+                        IconButton(onClick = { showMore = !showMore }) { Icon(Icons.Default.MoreVert, "More") }
+                        DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                            DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
+                            if (doc.id.startsWith("__file__:")) {
+                                DropdownMenuItem({ Text("Open with phone's default viewer") }, { onOpenDefaultViewer(); showMore = false })
+                            }
+                            DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); showMore = false })
+                            DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); showMore = false })
+                            DropdownMenuItem({ Text("Find / Replace") }, { exec("findReplace()"); showMore = false })
+                            DropdownMenuItem({ Text("Editor settings") }, { showSettings = true; showMore = false })
                         }
-                        DropdownMenuItem({ Text("Export PDF (.pdf)") }, { onSaveAsPdf(); showMore = false })
-                        DropdownMenuItem({ Text("Save as Text (.txt)") }, { onSaveAsTxt(); showMore = false })
-                        DropdownMenuItem({
-                            Text(if (viewMode == "Reading view") "Print layout" else "Reading view")
-                        }, {
-                            viewMode = if (viewMode == "Reading view") "Print layout" else "Reading view"
-                            val mode = viewMode.lowercase().replace(" ", "-")
-                            exec("setViewMode('$mode')")
-                            showMore = false
-                        })
-                        DropdownMenuItem({ Text("Insert photo") }, { imagePicker.launch("image/*"); showMore = false })
-                        DropdownMenuItem({ Text("Insert table") }, { showTable = true; showMore = false })
-                        DropdownMenuItem({ Text("Find / Replace") }, { exec("findReplace()"); showMore = false })
-                        DropdownMenuItem({ Text("Editor settings") }, { showSettings = true; showMore = false })
                     }
                 }
             )
@@ -405,104 +396,143 @@ private fun EditorScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Surface(tonalElevation = 1.dp) {
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = viewMode == "Print layout",
-                        onClick = { viewMode = "Print layout"; exec("setViewMode('print-layout')") },
-                        label = { Text("Print layout") },
-                        leadingIcon = { Icon(Icons.Default.Print, null, Modifier.size(16.dp)) }
-                    )
-                    FilterChip(
-                        selected = viewMode == "Reading view",
-                        onClick = { viewMode = "Reading view"; exec("setViewMode('reading-view')") },
-                        label = { Text("Reading view") },
-                        leadingIcon = { Icon(Icons.Default.MenuBook, null, Modifier.size(16.dp)) }
-                    )
-                    FilterChip(
-                        selected = viewMode == "Mobile view",
-                        onClick = { viewMode = "Mobile view"; exec("setViewMode('mobile-view')") },
-                        label = { Text("Mobile view") },
-                        leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp)) }
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text("$wordCount words • $charCount characters • $pageCount pages", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.width(10.dp))
-                    Text("A4", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                singleLine = true,
-                label = { Text("Document name") },
-                leadingIcon = { Icon(Icons.Default.Title, null) }
-            )
-            Surface(shadowElevation = 3.dp) {
                 Column {
                     Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = if (compactMode) 1.dp else 3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton({ exec("undo()") }) { Icon(Icons.Default.Undo, "Undo") }
-                        IconButton({ exec("redo()") }) { Icon(Icons.Default.Redo, "Redo") }
-                        EditorTool("B", "Bold") { exec("cmd('bold')") }
-                        EditorTool("I", "Italic") { exec("cmd('italic')") }
-                        EditorTool("U", "Underline") { exec("cmd('underline')") }
-                        EditorTool("S", "Strike") { exec("cmd('strikeThrough')") }
-                        IconButton({ showFormat = !showFormat }) { Icon(Icons.Default.FormatSize, "Font") }
-                        IconButton({ exec("cmd('justifyLeft')") }) { Icon(Icons.Default.FormatAlignLeft, "Align left") }
-                        IconButton({ exec("cmd('justifyCenter')") }) { Icon(Icons.Default.FormatAlignCenter, "Center") }
-                        IconButton({ exec("cmd('justifyRight')") }) { Icon(Icons.Default.FormatAlignRight, "Right") }
-                        IconButton({ exec("cmd('justifyFull')") }) { Icon(Icons.Default.FormatAlignJustify, "Justify") }
-                        IconButton({ exec("cmd('insertUnorderedList')") }) { Icon(Icons.Default.FormatListBulleted, "Bullets") }
-                        IconButton({ exec("cmd('insertOrderedList')") }) { Icon(Icons.Default.FormatListNumbered, "Numbering") }
-                        IconButton({ showInsert = !showInsert }) { Icon(Icons.Default.Add, "Insert") }
-                        IconButton({ showLayout = !showLayout }) { Icon(Icons.Default.ViewAgenda, "Layout") }
-                    }
-                    if (showFormat) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            EditorTool("H1", "Heading 1") { exec("formatBlock('h1')") }
-                            EditorTool("H2", "Heading 2") { exec("formatBlock('h2')") }
-                            EditorTool("P", "Normal") { exec("formatBlock('p')") }
-                            EditorTool("12", "12pt") { exec("fontSize('3')") }
-                            EditorTool("16", "16pt") { exec("fontSize('4')") }
-                            EditorTool("20", "20pt") { exec("fontSize('5')") }
-                            EditorTool("Black", "Text color") { exec("cmd('foreColor','#202124')") }
-                            EditorTool("Blue", "Text color") { exec("cmd('foreColor','#1565c0')") }
-                            EditorTool("Red", "Text color") { exec("cmd('foreColor','#c62828')") }
-                            EditorTool("Green", "Text color") { exec("cmd('foreColor','#2e7d32')") }
-                            EditorTool("Highlight", "Highlight") { exec("cmd('hiliteColor','#fff59d')") }
-                            EditorTool("Clear", "Clear formatting") { exec("cmd('removeFormat')") }
+                        listOf("Home", "Insert", "Layout", "View").forEach { tab ->
+                            FilterChip(
+                                selected = editorTab == tab,
+                                onClick = { editorTab = tab },
+                                label = { Text(tab) },
+                                leadingIcon = {
+                                    Icon(
+                                        when (tab) {
+                                            "Insert" -> Icons.Default.Add
+                                            "Layout" -> Icons.Default.ViewAgenda
+                                            "View" -> Icons.Default.Visibility
+                                            else -> Icons.Default.Edit
+                                        },
+                                        null,
+                                        Modifier.size(17.dp)
+                                    )
+                                },
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 4.dp)
+                            )
                         }
+                        Spacer(Modifier.weight(1f))
+                        Text("$wordCount words", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 10.dp))
                     }
-                    if (showInsert) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            EditorTool("Photo", "Insert photo") { imagePicker.launch("image/*") }
-                            EditorTool("Table", "Insert table") { showTable = true }
-                            EditorTool("Link", "Hyperlink") { exec("addLink()") }
-                            EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
-                            EditorTool("Img", "Image format") { exec("formatImage()") }
-                            EditorTool("Rows+", "Add table row") { exec("addTableRow()") }
-                            EditorTool("Row-", "Delete table row") { exec("deleteTableRow()") }
-                            EditorTool("Cols+", "Add table column") { exec("addTableCol()") }
-                            EditorTool("Col-", "Delete table column") { exec("deleteTableCol()") }
-                            EditorTool("Merge", "Merge selected cells") { exec("mergeCells()") }
-                            
-                            EditorTool("Break", "Page break") { exec("pageBreak()") }
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = { Text("Document name") },
+                            leadingIcon = { Icon(Icons.Default.Title, null) }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        AssistChip(
+                            onClick = { exec("requestSave()") },
+                            label = { Text("Save") },
+                            leadingIcon = { Icon(Icons.Default.Save, null, Modifier.size(16.dp)) }
+                        )
+                    }
+                    HorizontalDivider()
+                    when (editorTab) {
+                        "Home" -> {
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton({ exec("undo()") }) { Icon(Icons.Default.Undo, "Undo") }
+                                IconButton({ exec("redo()") }) { Icon(Icons.Default.Redo, "Redo") }
+                                EditorTool("B", "Bold") { exec("cmd('bold')") }
+                                EditorTool("I", "Italic") { exec("cmd('italic')") }
+                                EditorTool("U", "Underline") { exec("cmd('underline')") }
+                                EditorTool("S", "Strike") { exec("cmd('strikeThrough')") }
+                                EditorTool("12", "12 pt") { exec("fontSize('3')") }
+                                EditorTool("16", "16 pt") { exec("fontSize('4')") }
+                                EditorTool("20", "20 pt") { exec("fontSize('5')") }
+                                EditorTool("H1", "Heading 1") { exec("formatBlock('h1')") }
+                                EditorTool("H2", "Heading 2") { exec("formatBlock('h2')") }
+                                EditorTool("P", "Normal") { exec("formatBlock('p')") }
+                                IconButton({ exec("cmd('justifyLeft')") }) { Icon(Icons.Default.FormatAlignLeft, "Align left") }
+                                IconButton({ exec("cmd('justifyCenter')") }) { Icon(Icons.Default.FormatAlignCenter, "Center") }
+                                IconButton({ exec("cmd('justifyRight')") }) { Icon(Icons.Default.FormatAlignRight, "Align right") }
+                                IconButton({ exec("cmd('justifyFull')") }) { Icon(Icons.Default.FormatAlignJustify, "Justify") }
+                                IconButton({ exec("cmd('insertUnorderedList')") }) { Icon(Icons.Default.FormatListBulleted, "Bullets") }
+                                IconButton({ exec("cmd('insertOrderedList')") }) { Icon(Icons.Default.FormatListNumbered, "Numbering") }
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                EditorTool("Black", "Text color") { exec("cmd('foreColor','#202124')") }
+                                EditorTool("Blue", "Text color") { exec("cmd('foreColor','#1565c0')") }
+                                EditorTool("Red", "Text color") { exec("cmd('foreColor','#c62828')") }
+                                EditorTool("Green", "Text color") { exec("cmd('foreColor','#2e7d32')") }
+                                EditorTool("Highlight", "Highlight") { exec("cmd('hiliteColor','#fff59d')") }
+                                EditorTool("Clear", "Clear formatting") { exec("cmd('removeFormat')") }
+                            }
                         }
-                    }
-                    if (showLayout) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            EditorTool("A4", "A4 page") { exec("setPage('A4')") }
-                            EditorTool("Letter", "Letter page") { exec("setPage('Letter')") }
-                            EditorTool("Portrait", "Portrait") { exec("setOrientation('portrait')") }
-                            EditorTool("Landscape", "Landscape") { exec("setOrientation('landscape')") }
-                            EditorTool("Margins", "Margins") { exec("setMargins()") }
+                        "Insert" -> {
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                EditorTool("Photo", "Insert photo") { imagePicker.launch("image/*") }
+                                EditorTool("Table", "Insert table") { showTable = true }
+                                EditorTool("Link", "Hyperlink") { exec("addLink()") }
+                                EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
+                                EditorTool("Image", "Image format") { exec("formatImage()") }
+                                EditorTool("Row+", "Add row") { exec("addTableRow()") }
+                                EditorTool("Row−", "Delete row") { exec("deleteTableRow()") }
+                                EditorTool("Col+", "Add column") { exec("addTableCol()") }
+                                EditorTool("Col−", "Delete column") { exec("deleteTableCol()") }
+                                EditorTool("Merge", "Merge cells") { exec("mergeCells()") }
+                                EditorTool("Break", "Page break") { exec("pageBreak()") }
+                            }
+                        }
+                        "Layout" -> {
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                EditorTool("A4", "A4") { exec("setPage('A4')") }
+                                EditorTool("Letter", "Letter") { exec("setPage('Letter')") }
+                                EditorTool("Portrait", "Portrait") { exec("setOrientation('portrait')") }
+                                EditorTool("Landscape", "Landscape") { exec("setOrientation('landscape')") }
+                                EditorTool("Margins", "Margins") { exec("setMargins()") }
+                            }
+                        }
+                        "View" -> {
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                EditorTool("Print", "Print layout") { viewMode = "Print layout"; exec("setViewMode('print-layout')") }
+                                EditorTool("Read", "Reading view") { viewMode = "Reading view"; exec("setViewMode('reading-view')") }
+                                EditorTool("Phone", "Mobile view") { viewMode = "Mobile view"; exec("setViewMode('mobile-view')") }
+                                EditorTool("−", "Zoom out") {
+                                    zoomPercent = (zoomPercent - 10).coerceAtLeast(50)
+                                    persistEditorSetting("zoom_percent", zoomPercent)
+                                    exec("setZoom($zoomPercent)")
+                                }
+                                EditorTool("$zoomPercent%", "Zoom") { }
+                                EditorTool("+", "Zoom in") {
+                                    zoomPercent = (zoomPercent + 10).coerceAtMost(200)
+                                    persistEditorSetting("zoom_percent", zoomPercent)
+                                    exec("setZoom($zoomPercent)")
+                                }
+                                EditorTool("Settings", "Editor settings") { showSettings = true }
+                            }
                         }
                     }
                     HorizontalDivider()
@@ -526,8 +556,7 @@ private fun EditorScreen(
                 update = { webView = it }
             )
         }
-    }
-
+    )
     if (showSettings) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
@@ -815,4 +844,3 @@ window.addEventListener('resize',()=>setZoom($zoomPercent))
 </script></body></html>
 """
 }
-
