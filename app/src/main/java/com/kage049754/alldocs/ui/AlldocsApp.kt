@@ -271,6 +271,10 @@ private fun EditorScreen(
     var showFormat by remember { mutableStateOf(false) }
     var showLayout by remember { mutableStateOf(false) }
     var showTable by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var darkMode by remember { mutableStateOf(false) }
+    var compactMode by remember { mutableStateOf(false) }
+    var showRuler by remember { mutableStateOf(true) }
     var tableRows by remember { mutableStateOf(3) }
     var tableCols by remember { mutableStateOf(3) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -334,6 +338,7 @@ private fun EditorScreen(
                         DropdownMenuItem({ Text("Insert photo") }, { imagePicker.launch("image/*"); showMore = false })
                         DropdownMenuItem({ Text("Insert table") }, { showTable = true; showMore = false })
                         DropdownMenuItem({ Text("Find / Replace") }, { exec("findReplace()"); showMore = false })
+                        DropdownMenuItem({ Text("Editor settings") }, { showSettings = true; showMore = false })
                     }
                 }
             )
@@ -451,6 +456,31 @@ private fun EditorScreen(
         }
     }
 
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("Editor settings") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Dark workspace", Modifier.weight(1f))
+                        Switch(checked = darkMode, onCheckedChange = { darkMode = it; exec("setTheme(" + it + ")") })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Compact toolbar", Modifier.weight(1f))
+                        Switch(checked = compactMode, onCheckedChange = { compactMode = it })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ruler", Modifier.weight(1f))
+                        Switch(checked = showRuler, onCheckedChange = { showRuler = it })
+                    }
+                    Text("Print layout remains editable, so page size, orientation, margins, images and tables can be adjusted while you type.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton({ showSettings = false }) { Text("Done") } }
+        )
+    }
+
     if (showTable) {
         AlertDialog(
             onDismissRequest = { showTable = false },
@@ -558,6 +588,7 @@ function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape
 function setMargins(){let v=prompt('Margins in px (8-120)','48');if(v){let n=Math.min(120,Math.max(8,parseInt(v)||48));p.style.padding=n+'px'}}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
+function setTheme(d){document.body.style.background=d?"#202124":"#e5e7eb"}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
 p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
