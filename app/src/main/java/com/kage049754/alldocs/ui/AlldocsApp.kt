@@ -556,7 +556,7 @@ private fun EditorScreen(
                 update = { webView = it }
             )
         }
-    )
+    }
     if (showSettings) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
