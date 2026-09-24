@@ -314,6 +314,10 @@ private fun EditorScreen(
                 },
                 actions = {
                     IconButton({ exec("requestSave()") }) { Icon(Icons.Default.Save, "Save") }
+                    IconButton({
+                        viewMode = "Print layout"
+                        exec("setViewMode('print-layout')")
+                    }) { Icon(Icons.Default.Print, "Print layout") }
                     IconButton({ showMore = !showMore }) { Icon(Icons.Default.MoreVert, "More") }
                     DropdownMenu(showMore, { showMore = false }) {
                         DropdownMenuItem({ Text("Save as Word (.docx)") }, { onSaveAsDocx(); showMore = false })
@@ -336,6 +340,28 @@ private fun EditorScreen(
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            Surface(tonalElevation = 1.dp) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = viewMode == "Print layout",
+                        onClick = { viewMode = "Print layout"; exec("setViewMode('print-layout')") },
+                        label = { Text("Print layout") },
+                        leadingIcon = { Icon(Icons.Default.Print, null, Modifier.size(16.dp)) }
+                    )
+                    FilterChip(
+                        selected = viewMode == "Reading view",
+                        onClick = { viewMode = "Reading view"; exec("setViewMode('reading-view')") },
+                        label = { Text("Reading view") },
+                        leadingIcon = { Icon(Icons.Default.MenuBook, null, Modifier.size(16.dp)) }
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text("A4", style = MaterialTheme.typography.labelMedium)
+                }
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -487,18 +513,27 @@ private fun editorHtml(initial: String): String {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#eef1f5;font-family:Arial,sans-serif;color:#202124;padding:16px 0 80px}
-#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;transition:width .15s ease}box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
-#page.reading{width:100%;min-height:100vh;box-shadow:none;padding:22px}
+body{margin:0;background:#e5e7eb;font-family:Arial,sans-serif;color:#202124;padding:20px 0 96px;min-height:100vh}
+#page{width:min(94vw,760px);min-height:1040px;margin:0 auto;background:#fff;padding:42px 48px;box-shadow:0 2px 14px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none;transition:width .15s ease,box-shadow .15s ease;overflow-wrap:anywhere}
+#page.reading{width:100%;min-height:100vh;box-shadow:none;padding:24px 22px}
+#page:not(.reading):focus{box-shadow:0 3px 18px rgba(0,0,0,.22)}
+p{margin:0 0 10px}
+ul,ol{padding-left:28px}
+blockquote{margin:12px 0;padding-left:14px;border-left:4px solid #9aa0a6;color:#5f6368}
+code{background:#f1f3f4;padding:2px 4px;border-radius:4px}
+
 img{max-width:100%;height:auto;display:block;margin:12px auto}
 table{border-collapse:collapse;width:100%;margin:14px 0}
 td,th{border:1px solid #777;padding:8px;min-width:45px}
 th{background:#e9eef6}
 hr{border:0;border-top:1px solid #777;margin:18px 0}
 .page-break{page-break-after:always;border-top:2px dashed #aaa;margin:20px 0;height:1px}
-h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px}#page.letter{max-width:790px}#page.landscape{max-width:1000px}
+h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px;min-height:1075px}
+#page.letter{max-width:790px;min-height:1045px}
+#page.landscape{max-width:1000px;min-height:760px}
+
 a{color:#1565c0;text-decoration:underline}
-@media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}}
+@media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}.page-break{border:0;height:0;margin:0}}
 </style></head><body>
 <div id="page" contenteditable="true" spellcheck="true">$source</div>
 <script>
@@ -517,10 +552,10 @@ function deleteTableCol(){let cell=selectedCell(),t=cell&&cell.closest('table');
 function mergeCells(){let cell=selectedCell();if(!cell)return;let next=cell.nextElementSibling;if(!next)return;cell.colSpan=(cell.colSpan||1)+(next.colSpan||1);cell.innerHTML+=(cell.innerHTML?' ':'')+next.innerHTML;next.remove()}
 function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
 function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
-function setViewMode(v){p.classList.toggle('reading',v==='reading-view')}
+function setViewMode(v){p.classList.toggle('reading',v==='reading-view');p.classList.toggle('print-layout',v!=='reading-view');p.focus()}
 function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4')}
-function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape')}
-function setMargins(){let v=prompt('Margins in px','34');if(v)p.style.padding=Math.max(8,parseInt(v)||34)+'px'}
+function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape');p.focus()}
+function setMargins(){let v=prompt('Margins in px (8-120)','48');if(v){let n=Math.min(120,Math.max(8,parseInt(v)||48));p.style.padding=n+'px'}}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
