@@ -615,7 +615,7 @@ a{color:#1565c0;text-decoration:underline}
 <div id="page" class="print-layout" contenteditable="true" spellcheck="true">$source</div>
 <script>
 const p=document.getElementById('page');
-setTimeout(function(){setTheme(${darkMode ? "true" : "false"});setZoom(${zoomPercent})},0);
+setTimeout(function(){setTheme(${if (darkMode) "true" else "false"});setZoom($zoomPercent)},0);
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
