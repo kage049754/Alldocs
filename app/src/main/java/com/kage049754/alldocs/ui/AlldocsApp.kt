@@ -35,6 +35,7 @@ import com.kage049754.alldocs.io.DocxWriter
 import com.kage049754.alldocs.io.OfficeFile
 import com.kage049754.alldocs.io.OfficeType
 import com.kage049754.alldocs.io.PdfWriter
+import com.kage049754.alldocs.io.PdfReader
 import java.text.DateFormat
 import java.util.Date
 
@@ -54,12 +55,18 @@ fun AlldocsApp(vm: AppViewModel) {
                     uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             }
-            val name = OfficeFile.displayName(uri)
+            val name = OfficeFile.displayName(context, uri)
             val type = OfficeFile.typeOf(name)
             val body = when (type) {
                 OfficeType.DOCX -> DocxReader.read(context, uri)
                 OfficeType.TXT -> OfficeFile.readText(context, uri)
-                else -> "This file type can be opened, but document editing is not available yet."
+                OfficeType.PDF -> PdfReader.read(context, uri)
+                OfficeType.IMAGE -> runCatching {
+                    val mime = context.contentResolver.getType(uri) ?: "image/*"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                    "<p><img src=\"data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}\" /></p>"
+                }.getOrDefault("")
+                OfficeType.UNKNOWN -> ""
             }
             editing = Document("__file__:" + type.name + ":" + uri, name.substringBeforeLast('.'), body, System.currentTimeMillis())
         }
@@ -86,7 +93,18 @@ fun AlldocsApp(vm: AppViewModel) {
             onSave = { title, body ->
                 val current = editing!!
                 if (current.id.startsWith("__file__:")) {
-                    editing = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
+                    val updated = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
+                    val parts = current.id.split(":", limit = 3)
+                    val type = OfficeType.valueOf(parts[1])
+                    val uri = android.net.Uri.parse(parts[2])
+                    when (type) {
+                        OfficeType.DOCX -> DocxWriter.write(context, uri, body)
+                        OfficeType.TXT -> context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(body.toPlainText().toByteArray(Charsets.UTF_8))
+                        }
+                        else -> Unit
+                    }
+                    editing = updated
                 } else {
                     vm.save(current.id.takeUnless { it == "__new__" }, title, body)
                     editing = null
@@ -365,6 +383,13 @@ private fun EditorScreen(
                             EditorTool("Table", "Insert table") { showTable = true }
                             EditorTool("Link", "Hyperlink") { exec("addLink()") }
                             EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
+                            EditorTool("Img", "Image format") { exec("formatImage()") }
+                            EditorTool("Rows+", "Add table row") { exec("addTableRow()") }
+                            EditorTool("Row-", "Delete table row") { exec("deleteTableRow()") }
+                            EditorTool("Cols+", "Add table column") { exec("addTableCol()") }
+                            EditorTool("Col-", "Delete table column") { exec("deleteTableCol()") }
+                            EditorTool("Merge", "Merge selected cells") { exec("mergeCells()") }
+                            
                             EditorTool("Break", "Page break") { exec("pageBreak()") }
                         }
                     }
@@ -432,20 +457,38 @@ private fun EditorScreen(
     }
 }
 
+@Composable
+private fun EditorTool(label: String, description: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.height(38.dp)) {
+        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    }
+}
+
+private fun String.toPlainText(): String =
+    replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\\n")
+        .replace(Regex("</p>|</div>|</h[1-6]>", RegexOption.IGNORE_CASE), "\\n")
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .trim()
+
 private fun editorHtml(initial: String): String {
-    val source = initial
+    val source = if (initial.trimStart().startsWith("<")) initial else initial
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
         .replace("\n", "<br>")
+
     return """
 <!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#eef1f5;font-family:Arial,sans-serif;color:#202124;padding:16px 0 80px}
-#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
+#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;transition:width .15s ease}box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
 #page.reading{width:100%;min-height:100vh;box-shadow:none;padding:22px}
 img{max-width:100%;height:auto;display:block;margin:12px auto}
 table{border-collapse:collapse;width:100%;margin:14px 0}
@@ -453,7 +496,7 @@ td,th{border:1px solid #777;padding:8px;min-width:45px}
 th{background:#e9eef6}
 hr{border:0;border-top:1px solid #777;margin:18px 0}
 .page-break{page-break-after:always;border-top:2px dashed #aaa;margin:20px 0;height:1px}
-h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}
+h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px}#page.letter{max-width:790px}#page.landscape{max-width:1000px}
 a{color:#1565c0;text-decoration:underline}
 @media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}}
 </style></head><body>
@@ -463,16 +506,25 @@ const p=document.getElementById('page');
 function cmd(c,v=null){p.focus();document.execCommand(c,false,v)}
 function undo(){cmd('undo')} function redo(){cmd('redo')}
 function formatBlock(v){cmd('formatBlock',v)}
-function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<img src="'+src+'" alt="Image">')}
+function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<img src="'+src+'" alt="Image" style="max-width:100%;height:auto">')}
+function formatImage(){let im=document.querySelector('img[data-selected="true"]');if(!im){alert('Tap an image first');return}let w=prompt('Image width (px)',String(im.getBoundingClientRect().width|0));if(w)im.style.width=Math.max(40,parseInt(w)||40)+'px';let a=prompt('Alignment: left, center, right','center');if(a==='left'||a==='center'||a==='right'){im.style.display='block';im.style.margin=a==='center'?'12px auto':a==='right'?'12px 0 12px auto':'12px 0'}}
+function addTableRow(){let t=document.querySelector('table:last-of-type');if(!t)return;let r=t.rows[t.rows.length-1],nr=t.insertRow();for(let i=0;i<r.cells.length;i++){let cell=nr.insertCell();cell.innerHTML='<br>'}}
+function addTableCol(){let t=document.querySelector('table:last-of-type');if(!t)return;for(let r of t.rows){let cell=r.insertCell();cell.innerHTML='<br>'}}
+function selectedTable(){let s=window.getSelection();let n=s&&s.anchorNode;return n?(n.nodeType===3?n.parentElement:n).closest('table'):document.querySelector('table:last-of-type')}
+function selectedCell(){let s=window.getSelection();let n=s&&s.anchorNode;return n?(n.nodeType===3?n.parentElement:n).closest('td,th'):null}
+function deleteTableRow(){let cell=selectedCell();if(!cell)return;let row=cell.parentElement;if(row.parentElement.rows.length<=1)return;row.remove()}
+function deleteTableCol(){let cell=selectedCell(),t=cell&&cell.closest('table');if(!cell||!t)return;let i=cell.cellIndex;if(t.rows[0].cells.length<=1)return;for(let r of t.rows)if(r.cells[i])r.deleteCell(i)}
+function mergeCells(){let cell=selectedCell();if(!cell)return;let next=cell.nextElementSibling;if(!next)return;cell.colSpan=(cell.colSpan||1)+(next.colSpan||1);cell.innerHTML+=(cell.innerHTML?' ':'')+next.innerHTML;next.remove()}
 function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
 function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
 function setViewMode(v){p.classList.toggle('reading',v==='reading-view')}
-function setPage(v){p.dataset.page=v}
-function setOrientation(v){p.dataset.orientation=v;p.style.transform=v==='landscape'?'rotate(0deg)':''}
-function setMargins(){p.style.padding='28px'}
+function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4')}
+function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape')}
+function setMargins(){let v=prompt('Margins in px','34');if(v)p.style.padding=Math.max(8,parseInt(v)||34)+'px'}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
+p.addEventListener('click',e=>{document.querySelectorAll('img[data-selected]').forEach(x=>x.removeAttribute('data-selected'));if(e.target.tagName==='IMG')e.target.setAttribute('data-selected','true')})
 p.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();requestSave()}})
 </script></body></html>
 """
