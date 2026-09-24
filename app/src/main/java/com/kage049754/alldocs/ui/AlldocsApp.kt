@@ -654,6 +654,8 @@ private fun editorHtml(initial: String, darkMode: Boolean = false, zoomPercent: 
         .replace("\"", "&quot;")
         .replace("\n", "<br>")
 
+    val initialBase64 = Base64.encodeToString(source.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+
     return """
 <!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -797,7 +799,10 @@ function updatePageLabels(){
 }
 function initializePages(){
   const holder=document.getElementById('pages');holder.innerHTML='';
-  const s=createSheet();s.innerHTML=$source||'<p><br></p>';holder.appendChild(s);
+  const s=createSheet();
+  const initialHtml=decodeURIComponent(escape(atob('$initialBase64')));
+  s.innerHTML=initialHtml||'<p><br></p>';
+  holder.appendChild(s);
   reflowPages();syncActiveSheet(s)
 }
 function updateStats(){
