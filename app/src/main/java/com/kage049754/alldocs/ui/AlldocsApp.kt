@@ -384,8 +384,12 @@ private fun EditorScreen(
                             EditorTool("Link", "Hyperlink") { exec("addLink()") }
                             EditorTool("HR", "Horizontal rule") { exec("cmd('insertHorizontalRule')") }
                             EditorTool("Img", "Image format") { exec("formatImage()") }
-                            EditorTool("Rows", "Add table row") { exec("addTableRow()") }
-                            EditorTool("Cols", "Add table column") { exec("addTableCol()") }
+                            EditorTool("Rows+", "Add table row") { exec("addTableRow()") }
+                            EditorTool("Row-", "Delete table row") { exec("deleteTableRow()") }
+                            EditorTool("Cols+", "Add table column") { exec("addTableCol()") }
+                            EditorTool("Col-", "Delete table column") { exec("deleteTableCol()") }
+                            EditorTool("Merge", "Merge selected cells") { exec("mergeCells()") }
+                            
                             EditorTool("Break", "Page break") { exec("pageBreak()") }
                         }
                     }
@@ -484,7 +488,7 @@ private fun editorHtml(initial: String): String {
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#eef1f5;font-family:Arial,sans-serif;color:#202124;padding:16px 0 80px}
-#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
+#page{width:min(94vw,760px);min-height:calc(100vh - 110px);margin:0 auto;background:#fff;padding:42px 34px;transition:width .15s ease}box-shadow:0 1px 8px rgba(0,0,0,.16);font-size:16px;line-height:1.55;outline:none}
 #page.reading{width:100%;min-height:100vh;box-shadow:none;padding:22px}
 img{max-width:100%;height:auto;display:block;margin:12px auto}
 table{border-collapse:collapse;width:100%;margin:14px 0}
@@ -492,7 +496,7 @@ td,th{border:1px solid #777;padding:8px;min-width:45px}
 th{background:#e9eef6}
 hr{border:0;border-top:1px solid #777;margin:18px 0}
 .page-break{page-break-after:always;border-top:2px dashed #aaa;margin:20px 0;height:1px}
-h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}
+h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}#page.a4{max-width:760px}#page.letter{max-width:790px}#page.landscape{max-width:1000px}
 a{color:#1565c0;text-decoration:underline}
 @media print{body{background:#fff;padding:0}#page{width:auto;min-height:auto;margin:0;box-shadow:none;padding:20mm}.page-break{page-break-after:always}}
 </style></head><body>
@@ -506,12 +510,17 @@ function insertImage(src){p.focus();document.execCommand('insertHTML',false,'<im
 function formatImage(){let im=document.querySelector('img[data-selected="true"]');if(!im){alert('Tap an image first');return}let w=prompt('Image width (px)',String(im.getBoundingClientRect().width|0));if(w)im.style.width=Math.max(40,parseInt(w)||40)+'px';let a=prompt('Alignment: left, center, right','center');if(a==='left'||a==='center'||a==='right'){im.style.display='block';im.style.margin=a==='center'?'12px auto':a==='right'?'12px 0 12px auto':'12px 0'}}
 function addTableRow(){let t=document.querySelector('table:last-of-type');if(!t)return;let r=t.rows[t.rows.length-1],nr=t.insertRow();for(let i=0;i<r.cells.length;i++){let cell=nr.insertCell();cell.innerHTML='<br>'}}
 function addTableCol(){let t=document.querySelector('table:last-of-type');if(!t)return;for(let r of t.rows){let cell=r.insertCell();cell.innerHTML='<br>'}}
+function selectedTable(){let s=window.getSelection();let n=s&&s.anchorNode;return n?(n.nodeType===3?n.parentElement:n).closest('table'):document.querySelector('table:last-of-type')}
+function selectedCell(){let s=window.getSelection();let n=s&&s.anchorNode;return n?(n.nodeType===3?n.parentElement:n).closest('td,th'):null}
+function deleteTableRow(){let cell=selectedCell();if(!cell)return;let row=cell.parentElement;if(row.parentElement.rows.length<=1)return;row.remove()}
+function deleteTableCol(){let cell=selectedCell(),t=cell&&cell.closest('table');if(!cell||!t)return;let i=cell.cellIndex;if(t.rows[0].cells.length<=1)return;for(let r of t.rows)if(r.cells[i])r.deleteCell(i)}
+function mergeCells(){let cell=selectedCell();if(!cell)return;let next=cell.nextElementSibling;if(!next)return;cell.colSpan=(cell.colSpan||1)+(next.colSpan||1);cell.innerHTML+=(cell.innerHTML?' ':'')+next.innerHTML;next.remove()}
 function insertTable(r,c){let h='<table><tbody>';for(let i=0;i<r;i++){h+='<tr>';for(let j=0;j<c;j++){h+=(i===0?'<th contenteditable="true">':'<td contenteditable="true">')+'Cell '+(i+1)+','+(j+1)+(i===0?'</th>':'</td>')}h+='</tr>'}h+='</tbody></table><p><br></p>';document.execCommand('insertHTML',false,h)}
 function pageBreak(){document.execCommand('insertHTML',false,'<div class="page-break"></div><p><br></p>')}
 function setViewMode(v){p.classList.toggle('reading',v==='reading-view')}
-function setPage(v){p.dataset.page=v}
-function setOrientation(v){p.dataset.orientation=v;p.style.transform=v==='landscape'?'rotate(0deg)':''}
-function setMargins(){p.style.padding='28px'}
+function setPage(v){p.dataset.page=v;p.classList.toggle('letter',v==='Letter');p.classList.toggle('a4',v==='A4')}
+function setOrientation(v){p.dataset.orientation=v;p.classList.toggle('landscape',v==='landscape')}
+function setMargins(){let v=prompt('Margins in px','34');if(v)p.style.padding=Math.max(8,parseInt(v)||34)+'px'}
 function addLink(){let u=prompt('Enter URL');if(u)cmd('createLink',u)}
 function findReplace(){let q=prompt('Find text');if(!q)return;let r=prompt('Replace with','');if(r!==null)p.innerHTML=p.innerHTML.split(q).join(r)}
 function requestSave(){window.AlldocsEditor.save(p.innerHTML)}
