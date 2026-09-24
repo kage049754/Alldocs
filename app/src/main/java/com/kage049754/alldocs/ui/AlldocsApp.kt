@@ -93,7 +93,18 @@ fun AlldocsApp(vm: AppViewModel) {
             onSave = { title, body ->
                 val current = editing!!
                 if (current.id.startsWith("__file__:")) {
-                    editing = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
+                    val updated = current.copy(title = title, body = body, updatedAt = System.currentTimeMillis())
+                    val parts = current.id.split(":", limit = 3)
+                    val type = OfficeType.valueOf(parts[1])
+                    val uri = android.net.Uri.parse(parts[2])
+                    when (type) {
+                        OfficeType.DOCX -> DocxWriter.write(context, uri, body)
+                        OfficeType.TXT -> context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(body.toPlainText().toByteArray(Charsets.UTF_8))
+                        }
+                        else -> Unit
+                    }
+                    editing = updated
                 } else {
                     vm.save(current.id.takeUnless { it == "__new__" }, title, body)
                     editing = null
@@ -448,6 +459,16 @@ private fun EditorTool(label: String, description: String, onClick: () -> Unit) 
         Text(label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     }
 }
+
+private fun String.toPlainText(): String =
+    replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\\n")
+        .replace(Regex("</p>|</div>|</h[1-6]>", RegexOption.IGNORE_CASE), "\\n")
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .trim()
 
 private fun editorHtml(initial: String): String {
     val source = if (initial.trimStart().startsWith("<")) initial else initial
