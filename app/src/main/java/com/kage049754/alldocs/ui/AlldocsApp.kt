@@ -315,7 +315,7 @@ private fun EditorScreen(
                 "(function(){var t=(document.getElementById('page')?.innerText||'').trim();return JSON.stringify({w:t?t.split(/\\s+/).length:0,c:t.length});})()"
             ) { value ->
                 runCatching {
-                    val raw = value.removeSurrounding("\\"")
+                    val raw = value.removeSurrounding("\"")
                     val obj = org.json.JSONObject(raw)
                     wordCount = obj.optInt("w", 0)
                     charCount = obj.optInt("c", 0)
